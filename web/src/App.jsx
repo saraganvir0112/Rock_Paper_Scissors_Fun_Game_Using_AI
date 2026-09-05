@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import CameraFeed from './components/CameraFeed';
 import { GESTURES, GESTURE_METADATA } from './utils/gestureClassifier';
 import {
@@ -28,6 +28,7 @@ export default function App() {
   const [gameStatus, setGameStatus] = useState(GAME_STATUS.IDLE);
   const [scores, setScores] = useState({ player: 0, computer: 0, draws: 0 });
   const [roundResult, setRoundResult] = useState(null);
+  const [scoreAnimation, setScoreAnimation] = useState(null); // 'player' | 'computer' | 'draws' | null
 
   // Ref ensuring a round scores at most once
   const roundScoredRef = useRef(false);
@@ -49,12 +50,26 @@ export default function App() {
 
         const result = evaluateRound(gesture);
         setRoundResult(result);
-        setScores((prev) => updateScores(prev, result.winner));
+        setScores((prev) => {
+          const next = updateScores(prev, result.winner);
+          if (result.winner === WINNERS.PLAYER) setScoreAnimation('player');
+          else if (result.winner === WINNERS.COMPUTER) setScoreAnimation('computer');
+          else if (result.winner === WINNERS.DRAW) setScoreAnimation('draws');
+          return next;
+        });
         setGameStatus(GAME_STATUS.RESULT);
       }
     },
     [gameStatus]
   );
+
+  // Clear score bump animation after transition
+  useEffect(() => {
+    if (scoreAnimation) {
+      const timer = setTimeout(() => setScoreAnimation(null), 700);
+      return () => clearTimeout(timer);
+    }
+  }, [scoreAnimation]);
 
   // Start new game session / round
   const handleStartGame = () => {
@@ -76,6 +91,7 @@ export default function App() {
     setRoundResult(null);
     roundScoredRef.current = false;
     setGameStatus(GAME_STATUS.IDLE);
+    setScoreAnimation(null);
   };
 
   const activeMeta = GESTURE_METADATA[gestureInfo.gesture] || GESTURE_METADATA[GESTURES.UNKNOWN];
@@ -87,32 +103,34 @@ export default function App() {
         <div className="brand-pill">
           <span className={`brand-dot ${isCameraReady ? 'brand-dot-ready' : ''}`} />
           <span className="brand-text">
-            {isCameraReady ? 'Module 4 • Game Engine Active' : 'Module 4 • Initializing'}
+            {isCameraReady ? 'AI Vision Ready' : 'Initializing Vision...'}
           </span>
         </div>
         <h1 className="app-title">
           Rock Paper Scissors <span className="gradient-text">AI</span>
         </h1>
         <p className="app-subtitle">
-          Play against the computer opponent using your hand gestures
+          Real-time webcam hand tracking game powered by MediaPipe &amp; React
         </p>
       </header>
 
       {/* Main Container */}
       <main className="app-main">
         {/* Scoreboard Panel */}
-        <section className="scoreboard-panel">
-          <div className="score-box score-player">
-            <span className="score-label">You</span>
-            <span className="score-number">{scores.player}</span>
-          </div>
-          <div className="score-box score-draws">
-            <span className="score-label">Draws</span>
-            <span className="score-number">{scores.draws}</span>
-          </div>
-          <div className="score-box score-computer">
-            <span className="score-label">Computer</span>
-            <span className="score-number">{scores.computer}</span>
+        <section className="scoreboard-panel" aria-label="Scoreboard">
+          <div className="score-boxes-container">
+            <div className={`score-box score-player ${scoreAnimation === 'player' ? 'score-bump' : ''}`}>
+              <span className="score-label">You</span>
+              <span className="score-number">{scores.player}</span>
+            </div>
+            <div className={`score-box score-draws ${scoreAnimation === 'draws' ? 'score-bump' : ''}`}>
+              <span className="score-label">Draws</span>
+              <span className="score-number">{scores.draws}</span>
+            </div>
+            <div className={`score-box score-computer ${scoreAnimation === 'computer' ? 'score-bump' : ''}`}>
+              <span className="score-label">Computer</span>
+              <span className="score-number">{scores.computer}</span>
+            </div>
           </div>
           <div className="score-actions">
             <button
@@ -127,11 +145,12 @@ export default function App() {
         </section>
 
         {/* Game Arena & Controls */}
-        <section className="game-arena-panel">
+        <section className="game-arena-panel" aria-live="polite">
           {gameStatus === GAME_STATUS.IDLE && (
             <div className="arena-idle-box">
-              <h3>Ready to Play?</h3>
-              <p>Click "Start Game" and show Rock, Paper, or Scissors to the camera.</p>
+              <div className="arena-badge">Ready to Play</div>
+              <h3>Start a Round</h3>
+              <p>Click below, then hold up Rock, Paper, or Scissors in front of the camera.</p>
               <button
                 type="button"
                 className="btn-game-primary"
@@ -144,10 +163,16 @@ export default function App() {
 
           {gameStatus === GAME_STATUS.WAITING && (
             <div className="arena-waiting-box">
-              <div className="waiting-spinner-ring" />
+              <div className="waiting-radar-wrapper">
+                <div className="waiting-radar-pulse" />
+                <span className="waiting-radar-icon">📸</span>
+              </div>
               <h3>Round in Progress</h3>
               <p>Make your move: ✊ Rock, ✋ Paper, or ✌️ Scissors</p>
-              <span className="waiting-indicator">Awaiting hand gesture...</span>
+              <div className="waiting-badge">
+                <span className="waiting-dot" />
+                <span>Waiting for your hand gesture...</span>
+              </div>
             </div>
           )}
 
@@ -160,7 +185,9 @@ export default function App() {
                   <span className="move-name">{MOVE_METADATA[roundResult.playerMove]?.label}</span>
                 </div>
 
-                <div className="vs-badge">VS</div>
+                <div className="vs-badge">
+                  <span>VS</span>
+                </div>
 
                 <div className="move-card move-computer">
                   <span className="move-owner">Computer</span>
@@ -181,7 +208,7 @@ export default function App() {
               <div className="result-actions">
                 <button
                   type="button"
-                  className="btn-game-primary"
+                  className="btn-game-primary btn-play-again"
                   onClick={handlePlayAgain}
                 >
                   🔁 Play Again
@@ -258,11 +285,40 @@ export default function App() {
           </div>
         </section>
 
-        {/* Milestone Note */}
+        {/* Target Reference Cards */}
+        <section className="gesture-targets-grid">
+          <div className={`target-card ${gestureInfo.gesture === GESTURES.ROCK ? 'target-active' : ''}`}>
+            <span className="target-emoji">✊</span>
+            <div className="target-info">
+              <h4>Rock</h4>
+              <p>Beats Scissors • All fingers curled</p>
+            </div>
+            {gestureInfo.gesture === GESTURES.ROCK && <span className="active-dot" />}
+          </div>
+
+          <div className={`target-card ${gestureInfo.gesture === GESTURES.PAPER ? 'target-active' : ''}`}>
+            <span className="target-emoji">✋</span>
+            <div className="target-info">
+              <h4>Paper</h4>
+              <p>Beats Rock • All fingers extended</p>
+            </div>
+            {gestureInfo.gesture === GESTURES.PAPER && <span className="active-dot" />}
+          </div>
+
+          <div className={`target-card ${gestureInfo.gesture === GESTURES.SCISSORS ? 'target-active' : ''}`}>
+            <span className="target-emoji">✌️</span>
+            <div className="target-info">
+              <h4>Scissors</h4>
+              <p>Beats Paper • Index &amp; Middle extended</p>
+            </div>
+            {gestureInfo.gesture === GESTURES.SCISSORS && <span className="active-dot" />}
+          </div>
+        </section>
+
+        {/* Portfolio Footer */}
         <footer className="module-footer">
           <p>
-            <strong>Module 4 Scope:</strong> Game Logic + AI Opponent + Round Lifecycle + Scoreboard.{' '}
-            <em>Advanced visual polish and sound design belong to Module 5.</em>
+            <strong>Rock Paper Scissors AI</strong> • Real-time hand tracking and computer vision in the browser.
           </p>
         </footer>
       </main>
