@@ -305,6 +305,133 @@
   animation: pulse-dot 1s infinite;
 }
 
+/* Arena Countdown (Module 7: 3 -> 2 -> 1 -> SHOOT!) */
+.arena-countdown-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.85rem;
+  animation: fade-in 0.25s ease;
+}
+
+.countdown-number-circle {
+  width: 104px;
+  height: 104px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at center, rgba(17, 232, 182, 0.25), rgba(15, 23, 42, 0.85));
+  border: 3px solid var(--accent-cyan);
+  box-shadow: 0 0 35px rgba(17, 232, 182, 0.45);
+  animation: count-pop 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  user-select: none;
+}
+
+.countdown-number {
+  font-family: var(--font-display);
+  font-size: 3.5rem;
+  font-weight: 900;
+  color: #ffffff;
+  text-shadow: 0 0 16px rgba(255, 255, 255, 0.7);
+  line-height: 1;
+}
+
+.countdown-number-circle.shoot-mode {
+  width: auto;
+  min-width: 160px;
+  height: 64px;
+  padding: 0 1.75rem;
+  border-radius: 999px;
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.35), rgba(239, 68, 68, 0.45));
+  border-color: #f59e0b;
+  box-shadow: 0 0 40px rgba(245, 158, 11, 0.65);
+  animation: shoot-flash 0.45s ease-out;
+}
+
+.shoot-mode .countdown-number {
+  font-size: 1.75rem;
+  color: #fef08a;
+  text-shadow: 0 0 20px #f59e0b;
+  letter-spacing: 0.06em;
+}
+
+.countdown-headline {
+  font-family: var(--font-display);
+  font-size: 1.45rem;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.countdown-subtext {
+  font-size: 0.95rem;
+  color: var(--text-muted);
+  max-width: 420px;
+  line-height: 1.4;
+}
+
+.countdown-live-preview {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  padding: 0.4rem 1.1rem;
+  border-radius: 999px;
+  font-size: 0.9rem;
+}
+
+.preview-label {
+  color: var(--text-muted);
+}
+
+.preview-badge {
+  font-weight: 700;
+  font-family: var(--font-display);
+}
+
+/* Arena Unclear / Missed Gesture */
+.arena-unclear-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  animation: fade-in 0.3s ease;
+}
+
+.unclear-icon {
+  font-size: 2.5rem;
+  line-height: 1;
+}
+
+.unclear-headline {
+  font-family: var(--font-display);
+  font-size: 1.45rem;
+  font-weight: 700;
+  color: #fbbf24;
+}
+
+.unclear-subtext {
+  font-size: 0.95rem;
+  color: var(--text-muted);
+  max-width: 440px;
+  line-height: 1.45;
+}
+
+.unclear-hint {
+  font-size: 0.85rem;
+  color: #f87171;
+  font-weight: 600;
+}
+
+.unclear-actions {
+  margin-top: 0.25rem;
+}
+
+.btn-try-again {
+  min-height: 48px;
+}
+
 /* Touch-Friendly Primary Button */
 .btn-game-primary {
   min-height: 52px;
@@ -445,6 +572,263 @@
 
 .winner-draw {
   border-color: rgba(251, 191, 36, 0.35);
+}
+
+/* ==========================================================================
+   BEST-OF-5 MATCH UI & ROUND TRANSITIONS
+   ========================================================================== */
+
+/* Match Status Banner in Scoreboard */
+.match-status-banner {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  padding-bottom: 0.85rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.round-pill {
+  font-family: var(--font-display);
+  font-size: 0.82rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 0.35rem 0.85rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: var(--text-main);
+}
+
+.round-pill.idle-pill {
+  background: rgba(14, 165, 233, 0.12);
+  border-color: rgba(14, 165, 233, 0.35);
+  color: #38bdf8;
+}
+
+.round-pill.active-match-pill {
+  background: linear-gradient(135deg, rgba(17, 232, 182, 0.15), rgba(56, 189, 248, 0.15));
+  border-color: rgba(17, 232, 182, 0.45);
+  color: #a7f3d0;
+  box-shadow: 0 0 14px rgba(17, 232, 182, 0.2);
+  animation: pulse-border 2s infinite;
+}
+
+.round-pill.complete-match-pill {
+  background: rgba(245, 158, 11, 0.15);
+  border-color: rgba(245, 158, 11, 0.4);
+  color: #fde68a;
+}
+
+.match-score-pill {
+  font-family: var(--font-display);
+  font-size: 0.95rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: #ffffff;
+  text-shadow: 0 0 12px rgba(255, 255, 255, 0.3);
+}
+
+.match-rule-pill {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.match-draws-pill {
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 0.25rem 0.6rem;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-dim);
+}
+
+/* Countdown Round Tag */
+.countdown-round-tag {
+  font-family: var(--font-display);
+  font-size: 0.85rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent-cyan);
+  padding: 0.25rem 0.8rem;
+  border-radius: 999px;
+  background: rgba(17, 232, 182, 0.1);
+  border: 1px solid rgba(17, 232, 182, 0.25);
+  margin-bottom: 0.25rem;
+}
+
+/* Round Completed View (Between Rounds) */
+.round-badge-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.round-completed-badge {
+  font-family: var(--font-display);
+  font-size: 0.8rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+  text-transform: uppercase;
+}
+
+.round-outcome-tag {
+  font-family: var(--font-display);
+  font-size: 0.85rem;
+  font-weight: 800;
+  padding: 0.25rem 0.75rem;
+  border-radius: 999px;
+}
+
+.outcome-player {
+  background: rgba(17, 232, 182, 0.15);
+  border: 1px solid rgba(17, 232, 182, 0.35);
+  color: #6ee7b7;
+}
+
+.outcome-computer {
+  background: rgba(251, 113, 133, 0.15);
+  border: 1px solid rgba(251, 113, 133, 0.35);
+  color: #fda4af;
+}
+
+.outcome-draw {
+  background: rgba(251, 191, 36, 0.15);
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  color: #fde68a;
+}
+
+/* Auto-Advance Bar */
+.auto-advance-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  margin-top: 0.65rem;
+  padding: 0.45rem 1rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.auto-advance-pulse {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent-cyan);
+  box-shadow: 0 0 10px var(--accent-cyan);
+  animation: pulse-dot 1s infinite;
+}
+
+.auto-advance-text {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+/* Match Result Card (Final 5-round outcome) */
+.arena-match-result-box {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.15rem;
+  padding: 1.5rem 1rem;
+  animation: result-enter 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.match-trophy-icon {
+  font-size: 3.75rem;
+  line-height: 1;
+  filter: drop-shadow(0 0 25px rgba(245, 158, 11, 0.5));
+  animation: count-pop 0.5s ease-out;
+}
+
+.match-result-headline {
+  font-family: var(--font-display);
+  font-size: 2.35rem;
+  font-weight: 900;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+.match-winner-player .match-result-headline {
+  color: #6ee7b7;
+  text-shadow: 0 0 35px rgba(16, 185, 129, 0.55);
+}
+
+.match-winner-computer .match-result-headline {
+  color: #fda4af;
+  text-shadow: 0 0 35px rgba(244, 63, 94, 0.55);
+}
+
+.match-winner-draw .match-result-headline {
+  color: #fde68a;
+  text-shadow: 0 0 35px rgba(245, 158, 11, 0.55);
+}
+
+.match-score-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.9rem 2.2rem;
+  border-radius: 16px;
+  background: rgba(15, 23, 42, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+.match-score-caption {
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.match-score-big {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  font-family: var(--font-display);
+  font-size: 2.25rem;
+  font-weight: 900;
+}
+
+.big-score-player {
+  color: var(--accent-cyan);
+}
+
+.big-score-divider {
+  color: var(--text-dim);
+  font-weight: 400;
+}
+
+.big-score-computer {
+  color: #fb7185;
+}
+
+.match-draws-caption {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.match-result-subtext {
+  font-size: 1rem;
+  color: var(--text-muted);
+  max-width: 480px;
+  margin: 0;
+  line-height: 1.45;
 }
 
 /* ==========================================================================
@@ -1112,6 +1496,32 @@
   }
   to {
     opacity: 1;
+  }
+}
+
+@keyframes count-pop {
+  0% {
+    transform: scale(1.35);
+    opacity: 0.5;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes shoot-flash {
+  0% {
+    transform: scale(0.8);
+    filter: brightness(2);
+  }
+  50% {
+    transform: scale(1.12);
+    filter: brightness(1.5);
+  }
+  100% {
+    transform: scale(1);
+    filter: brightness(1);
   }
 }
 

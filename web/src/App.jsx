@@ -9,10 +9,15 @@ import {
 } from './utils/gameLogic';
 import './App.css';
 
+const MAX_ROUNDS = 5;
+const TARGET_WINS = 3;
+
 const GAME_STATUS = {
   IDLE: 'IDLE',
-  WAITING: 'WAITING',
-  RESULT: 'RESULT',
+  COUNTDOWN: 'COUNTDOWN',
+  ROUND_RESULT: 'ROUND_RESULT',
+  MATCH_RESULT: 'MATCH_RESULT',
+  UNCLEAR: 'UNCLEAR',
 };
 
 export default function App() {
@@ -24,44 +29,81 @@ export default function App() {
     fingerStates: null,
   });
 
-  // Game Logic States
+  // Game Logic States (Best-of-5 Match)
   const [gameStatus, setGameStatus] = useState(GAME_STATUS.IDLE);
+  const [currentRound, setCurrentRound] = useState(1);
   const [scores, setScores] = useState({ player: 0, computer: 0, draws: 0 });
   const [roundResult, setRoundResult] = useState(null);
+  const [matchResult, setMatchResult] = useState(null);
   const [scoreAnimation, setScoreAnimation] = useState(null); // 'player' | 'computer' | 'draws' | null
+  const [countdownValue, setCountdownValue] = useState(null); // 3, 2, 1, 'SHOOT!'
 
-  // Ref ensuring a round scores at most once
+  // Refs ensuring reliable snapshots and avoiding stale closures across timers
+  const currentRoundRef = useRef(1);
+  const scoresRef = useRef({ player: 0, computer: 0, draws: 0 });
   const roundScoredRef = useRef(false);
+  const countdownTimerRef = useRef(null);
+  const nextRoundTimerRef = useRef(null);
+  const startCountdownRef = useRef(null);
+  const simulatedGestureRef = useRef(null);
+  const mockComputerMoveRef = useRef(null);
+  const latestGestureRef = useRef({
+    gesture: GESTURES.UNKNOWN,
+    confidence: 0,
+    fingerStates: null,
+  });
 
-  // Handle detected gesture input from camera
-  const handleGestureDetected = useCallback(
-    (detectedData) => {
-      setGestureInfo(detectedData);
+  // Handle detected gesture input from camera (feeds live snapshot without scoring)
+  const handleGestureDetected = useCallback((detectedData) => {
+    if (simulatedGestureRef.current) return;
+    setGestureInfo(detectedData);
+    latestGestureRef.current = detectedData;
+  }, []);
 
-      const gesture = detectedData.gesture;
-      const isValidMove =
-        gesture === GESTURES.ROCK ||
-        gesture === GESTURES.PAPER ||
-        gesture === GESTURES.SCISSORS;
-
-      // Only score when in WAITING state and this round hasn't scored yet
-      if (gameStatus === GAME_STATUS.WAITING && isValidMove && !roundScoredRef.current) {
-        roundScoredRef.current = true;
-
-        const result = evaluateRound(gesture);
-        setRoundResult(result);
-        setScores((prev) => {
-          const next = updateScores(prev, result.winner);
-          if (result.winner === WINNERS.PLAYER) setScoreAnimation('player');
-          else if (result.winner === WINNERS.COMPUTER) setScoreAnimation('computer');
-          else if (result.winner === WINNERS.DRAW) setScoreAnimation('draws');
-          return next;
-        });
-        setGameStatus(GAME_STATUS.RESULT);
+  // Expose test helper for automated test environments
+  useEffect(() => {
+    window.__simulateGesture = (gesture, confidence = 0.95) => {
+      if (!gesture) {
+        simulatedGestureRef.current = null;
+        return;
       }
-    },
-    [gameStatus]
-  );
+      simulatedGestureRef.current = gesture;
+      const data = {
+        gesture,
+        confidence,
+        hand: 'Right',
+        isAmbiguous: gesture === GESTURES.UNKNOWN,
+        fingerStates: null,
+      };
+      setGestureInfo(data);
+      latestGestureRef.current = data;
+    };
+
+    window.__setMockComputerMove = (move) => {
+      mockComputerMoveRef.current = move;
+    };
+
+    return () => {
+      delete window.__simulateGesture;
+      delete window.__setMockComputerMove;
+    };
+  }, []);
+
+  // Clear all active timers
+  const clearAllTimers = useCallback(() => {
+    if (countdownTimerRef.current) {
+      clearInterval(countdownTimerRef.current);
+      countdownTimerRef.current = null;
+    }
+    if (nextRoundTimerRef.current) {
+      clearTimeout(nextRoundTimerRef.current);
+      nextRoundTimerRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => clearAllTimers();
+  }, [clearAllTimers]);
 
   // Clear score bump animation after transition
   useEffect(() => {
@@ -71,24 +113,151 @@ export default function App() {
     }
   }, [scoreAnimation]);
 
-  // Start new game session / round
-  const handleStartGame = () => {
+  // Start 3-second countdown gameplay for a specific round (3 -> 2 -> 1 -> SHOOT!)
+  const startCountdown = useCallback((roundNumber) => {
+    clearAllTimers();
     roundScoredRef.current = false;
     setRoundResult(null);
-    setGameStatus(GAME_STATUS.WAITING);
-  };
 
-  // Play another round
-  const handlePlayAgain = () => {
-    roundScoredRef.current = false;
-    setRoundResult(null);
-    setGameStatus(GAME_STATUS.WAITING);
-  };
+    const activeRound = roundNumber !== undefined ? roundNumber : currentRoundRef.current;
+    setCurrentRound(activeRound);
+    currentRoundRef.current = activeRound;
 
-  // Reset entire scoreboard
-  const handleResetScore = () => {
+    setGameStatus(GAME_STATUS.COUNTDOWN);
+
+    let currentCount = 3;
+    setCountdownValue(3);
+
+    countdownTimerRef.current = setInterval(() => {
+      currentCount -= 1;
+
+      if (currentCount > 0) {
+        setCountdownValue(currentCount);
+      } else if (currentCount === 0) {
+        // Exact moment of SHOOT!
+        setCountdownValue('SHOOT!');
+
+        const captured = latestGestureRef.current;
+        const gesture = captured ? captured.gesture : GESTURES.UNKNOWN;
+        const isValidMove =
+          gesture === GESTURES.ROCK ||
+          gesture === GESTURES.PAPER ||
+          gesture === GESTURES.SCISSORS;
+
+        if (isValidMove && !roundScoredRef.current) {
+          roundScoredRef.current = true;
+          const compMoveOverride = mockComputerMoveRef.current;
+          const result = evaluateRound(gesture, compMoveOverride);
+          setRoundResult(result);
+
+          // Update match scores
+          const prevScores = scoresRef.current;
+          const nextScores = updateScores(prevScores, result.winner);
+          scoresRef.current = nextScores;
+          setScores(nextScores);
+
+          if (result.winner === WINNERS.PLAYER) setScoreAnimation('player');
+          else if (result.winner === WINNERS.COMPUTER) setScoreAnimation('computer');
+          else if (result.winner === WINNERS.DRAW) setScoreAnimation('draws');
+
+          // Brief pause on SHOOT! then reveal round or match result
+          setTimeout(() => {
+            const thisRound = currentRoundRef.current;
+            const pWins = nextScores.player;
+            const cWins = nextScores.computer;
+
+            const isPlayerEarlyWin = pWins >= TARGET_WINS;
+            const isComputerEarlyWin = cWins >= TARGET_WINS;
+            const isMatchComplete = isPlayerEarlyWin || isComputerEarlyWin || thisRound >= MAX_ROUNDS;
+
+            if (isMatchComplete) {
+              let matchWinner = 'draw';
+              let title = "IT'S A DRAW MATCH! 🤝";
+              let subtitle = `Match tied ${pWins} - ${cWins} after ${thisRound} rounds!`;
+
+              if (pWins > cWins) {
+                matchWinner = 'player';
+                title = 'YOU WIN THE MATCH! 🏆';
+                subtitle = isPlayerEarlyWin
+                  ? `Decisive victory! You reached ${TARGET_WINS} wins first.`
+                  : `Victory by score after ${MAX_ROUNDS} rounds (${pWins} - ${cWins})!`;
+              } else if (cWins > pWins) {
+                matchWinner = 'computer';
+                title = 'AI WINS THE MATCH! 🤖';
+                subtitle = isComputerEarlyWin
+                  ? `The AI reached ${TARGET_WINS} wins first.`
+                  : `AI won by score after ${MAX_ROUNDS} rounds (${cWins} - ${pWins}).`;
+              }
+
+              setMatchResult({
+                winner: matchWinner,
+                title,
+                subtitle,
+                finalScores: nextScores,
+                roundsPlayed: thisRound,
+              });
+              setGameStatus(GAME_STATUS.MATCH_RESULT);
+              setCountdownValue(null);
+            } else {
+              // Valid round completed, auto-advance to next round after 2.2 seconds
+              setGameStatus(GAME_STATUS.ROUND_RESULT);
+              setCountdownValue(null);
+
+              nextRoundTimerRef.current = setTimeout(() => {
+                const nextRound = thisRound + 1;
+                setCurrentRound(nextRound);
+                currentRoundRef.current = nextRound;
+                startCountdownRef.current?.(nextRound);
+              }, 2200);
+            }
+          }, 650);
+        } else {
+          // Unclear / UNKNOWN at SHOOT! -> Round does NOT count
+          setTimeout(() => {
+            setGameStatus(GAME_STATUS.UNCLEAR);
+            setCountdownValue(null);
+          }, 650);
+        }
+
+        if (countdownTimerRef.current) {
+          clearInterval(countdownTimerRef.current);
+          countdownTimerRef.current = null;
+        }
+      }
+    }, 1000);
+  }, [clearAllTimers]);
+
+  useEffect(() => {
+    startCountdownRef.current = startCountdown;
+  }, [startCountdown]);
+
+  // Start a new Best-of-5 battle
+  const handleStartBattle = () => {
+    clearAllTimers();
+    setCurrentRound(1);
+    currentRoundRef.current = 1;
     setScores({ player: 0, computer: 0, draws: 0 });
+    scoresRef.current = { player: 0, computer: 0, draws: 0 };
     setRoundResult(null);
+    setMatchResult(null);
+    startCountdown(1);
+  };
+
+  // Play another full match after previous match ends
+  const handlePlayAgain = () => {
+    handleStartBattle();
+  };
+
+  // Reset entire scoreboard, match, and active timers
+  const handleResetScore = () => {
+    clearAllTimers();
+    setCountdownValue(null);
+    setCurrentRound(1);
+    currentRoundRef.current = 1;
+    setScores({ player: 0, computer: 0, draws: 0 });
+    scoresRef.current = { player: 0, computer: 0, draws: 0 };
+    setRoundResult(null);
+    setMatchResult(null);
     roundScoredRef.current = false;
     setGameStatus(GAME_STATUS.IDLE);
     setScoreAnimation(null);
@@ -127,6 +296,39 @@ export default function App() {
       <main className="app-main">
         {/* Scoreboard Panel */}
         <section className="scoreboard-panel" aria-label="Scoreboard">
+          {/* Prominent Match Status Banner */}
+          <div className="match-status-banner">
+            {gameStatus === GAME_STATUS.IDLE && (
+              <>
+                <span className="round-pill idle-pill">BEST OF 5 BATTLE</span>
+                <span className="match-score-pill">First to 3 Wins</span>
+              </>
+            )}
+            {(gameStatus === GAME_STATUS.COUNTDOWN ||
+              gameStatus === GAME_STATUS.ROUND_RESULT ||
+              gameStatus === GAME_STATUS.UNCLEAR) && (
+              <>
+                <span className="round-pill active-match-pill">ROUND {currentRound} / 5</span>
+                <span className="match-score-pill">
+                  YOU {scores.player}  |  AI {scores.computer}
+                </span>
+                {scores.draws > 0 && (
+                  <span className="match-draws-pill">
+                    {scores.draws} {scores.draws === 1 ? 'Draw' : 'Draws'}
+                  </span>
+                )}
+              </>
+            )}
+            {gameStatus === GAME_STATUS.MATCH_RESULT && (
+              <>
+                <span className="round-pill complete-match-pill">MATCH COMPLETE</span>
+                <span className="match-score-pill">
+                  FINAL: YOU {scores.player}  |  AI {scores.computer}
+                </span>
+              </>
+            )}
+          </div>
+
           <div className="score-boxes-container">
             <div className={`score-box score-player ${scoreAnimation === 'player' ? 'score-bump' : ''}`}>
               <span className="score-label">You</span>
@@ -146,7 +348,7 @@ export default function App() {
               type="button"
               className="btn-reset"
               onClick={handleResetScore}
-              title="Reset scoreboard to 0"
+              title="Reset match and scoreboard to 0"
             >
               🔄 Reset Score
             </button>
@@ -157,36 +359,81 @@ export default function App() {
         <section className="game-arena-panel" aria-live="polite">
           {gameStatus === GAME_STATUS.IDLE && (
             <div className="arena-idle-box">
-              <div className="arena-badge">Ready to Play</div>
-              <h3>Start a Round</h3>
-              <p>Click below, then hold up Rock, Paper, or Scissors in front of the camera.</p>
+              <div className="arena-badge">⚔️ Best of 5 Battle</div>
+              <h3>Ready for the RPS Championship?</h3>
+              <p>
+                Face the AI across 5 rounds. First to 3 wins takes the match! Every round starts with a
+                3 → 2 → 1 → SHOOT! countdown.
+              </p>
               <button
                 type="button"
-                className="btn-game-primary"
-                onClick={handleStartGame}
+                className="btn-game-primary btn-start-battle"
+                onClick={handleStartBattle}
               >
-                🎮 Start Game
+                ⚔️ Start Battle
               </button>
             </div>
           )}
 
-          {gameStatus === GAME_STATUS.WAITING && (
-            <div className="arena-waiting-box">
-              <div className="waiting-radar-wrapper">
-                <div className="waiting-radar-pulse" />
-                <span className="waiting-radar-icon">📸</span>
+          {gameStatus === GAME_STATUS.COUNTDOWN && (
+            <div className="arena-countdown-box">
+              <div className="countdown-round-tag">ROUND {currentRound} / 5</div>
+              <div
+                className={`countdown-number-circle ${countdownValue === 'SHOOT!' ? 'shoot-mode' : ''}`}
+                key={countdownValue}
+              >
+                <span className="countdown-number">{countdownValue}</span>
               </div>
-              <h3>Round in Progress</h3>
-              <p>Make your move: ✊ Rock, ✋ Paper, or ✌️ Scissors</p>
-              <div className="waiting-badge">
-                <span className="waiting-dot" />
-                <span>Waiting for your hand gesture...</span>
+              <h3 className="countdown-headline">
+                {countdownValue === 'SHOOT!' ? '⚡ SHOOT! Capture Moment' : `Round ${currentRound}: Get Ready to Shoot!`}
+              </h3>
+              <p className="countdown-subtext">
+                {countdownValue === 'SHOOT!'
+                  ? 'Locking in your move and generating AI choice...'
+                  : 'Prepare your move: ✊ Rock, ✋ Paper, or ✌️ Scissors'}
+              </p>
+              <div className="countdown-live-preview">
+                <span className="preview-label">Live Hand Pose:</span>
+                <span className="preview-badge" style={{ color: activeMeta.color }}>
+                  {activeMeta.emoji} {activeMeta.label}
+                </span>
               </div>
             </div>
           )}
 
-          {gameStatus === GAME_STATUS.RESULT && roundResult && (
-            <div className={`arena-result-box winner-${roundResult.winner.toLowerCase()}`}>
+          {gameStatus === GAME_STATUS.UNCLEAR && (
+            <div className="arena-unclear-box">
+              <div className="unclear-icon">❓</div>
+              <h3 className="unclear-headline">No Clear Move at SHOOT!</h3>
+              <p className="unclear-subtext">
+                The camera could not detect a clear Rock, Paper, or Scissors gesture at the exact moment of SHOOT!.
+              </p>
+              <p className="unclear-hint">
+                Round {currentRound} / 5 was not counted. Position your hand clearly and try again.
+              </p>
+              <div className="unclear-actions">
+                <button
+                  type="button"
+                  className="btn-game-primary btn-try-again"
+                  onClick={() => startCountdown(currentRound)}
+                >
+                  🔁 Retry Round {currentRound}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {gameStatus === GAME_STATUS.ROUND_RESULT && roundResult && (
+            <div className={`arena-result-box round-result-box winner-${roundResult.winner.toLowerCase()}`}>
+              <div className="round-badge-row">
+                <span className="round-completed-badge">ROUND {currentRound} / 5 COMPLETE</span>
+                <span className={`round-outcome-tag outcome-${roundResult.winner.toLowerCase()}`}>
+                  {roundResult.winner === WINNERS.PLAYER && `🎉 You Won Round ${currentRound}!`}
+                  {roundResult.winner === WINNERS.COMPUTER && `🤖 AI Won Round ${currentRound}!`}
+                  {roundResult.winner === WINNERS.DRAW && `🤝 Round ${currentRound} is a Draw!`}
+                </span>
+              </div>
+
               <div className="moves-comparison-row">
                 <div className="move-card move-player">
                   <span className="move-owner">You</span>
@@ -207,12 +454,38 @@ export default function App() {
 
               <div className="result-banner">
                 <h2 className="result-headline">{roundResult.message}</h2>
-                <span className="result-subtext">
-                  {roundResult.winner === WINNERS.PLAYER && 'Great move! You beat the computer.'}
-                  {roundResult.winner === WINNERS.COMPUTER && 'Computer won this round. Try again!'}
-                  {roundResult.winner === WINNERS.DRAW && 'Both chose the same move. Stalemate!'}
-                </span>
+                <div className="auto-advance-bar">
+                  <span className="auto-advance-pulse" />
+                  <span className="auto-advance-text">
+                    Round complete! Preparing Round {currentRound + 1} / 5 in 2.2 seconds...
+                  </span>
+                </div>
               </div>
+            </div>
+          )}
+
+          {gameStatus === GAME_STATUS.MATCH_RESULT && matchResult && (
+            <div className={`arena-result-box arena-match-result-box match-winner-${matchResult.winner}`}>
+              <div className="match-trophy-icon">
+                {matchResult.winner === 'player' ? '🏆' : matchResult.winner === 'computer' ? '🤖' : '🤝'}
+              </div>
+              <h2 className="match-result-headline">{matchResult.title}</h2>
+
+              <div className="match-score-card">
+                <div className="match-score-caption">MATCH SCORE</div>
+                <div className="match-score-big">
+                  <span className="big-score-player">YOU {scores.player}</span>
+                  <span className="big-score-divider">-</span>
+                  <span className="big-score-computer">{scores.computer} AI</span>
+                </div>
+                {scores.draws > 0 && (
+                  <div className="match-draws-caption">
+                    ({scores.draws} {scores.draws === 1 ? 'Draw round' : 'Draw rounds'})
+                  </div>
+                )}
+              </div>
+
+              <p className="match-result-subtext">{matchResult.subtitle}</p>
 
               <div className="result-actions">
                 <button
@@ -220,7 +493,7 @@ export default function App() {
                   className="btn-game-primary btn-play-again"
                   onClick={handlePlayAgain}
                 >
-                  🔁 Play Again
+                  🔁 PLAY AGAIN
                 </button>
               </div>
             </div>
