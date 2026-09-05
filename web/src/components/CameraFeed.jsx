@@ -29,8 +29,20 @@ export default function CameraFeed({ onHandDetected, onCameraReady, onGestureDet
     fingerStates: null,
   });
 
+  const onHandDetectedRef = useRef(onHandDetected);
+  const onCameraReadyRef = useRef(onCameraReady);
+  const onGestureDetectedRef = useRef(onGestureDetected);
+  const activeCallIdRef = useRef(0);
+
+  useEffect(() => {
+    onHandDetectedRef.current = onHandDetected;
+    onCameraReadyRef.current = onCameraReady;
+    onGestureDetectedRef.current = onGestureDetected;
+  });
+
   // Cleanup stream and animation loop
   const stopCamera = useCallback(() => {
+    activeCallIdRef.current++;
     if (animFrameIdRef.current) {
       cancelAnimationFrame(animFrameIdRef.current);
       animFrameIdRef.current = null;
@@ -143,8 +155,8 @@ export default function CameraFeed({ onHandDetected, onCameraReady, onGestureDet
 
               const hasHand = Boolean(results && results.landmarks && results.landmarks.length > 0);
               setIsHandDetected(hasHand);
-              if (onHandDetected) {
-                onHandDetected(hasHand, results);
+              if (onHandDetectedRef.current) {
+                onHandDetectedRef.current(hasHand, results);
               }
 
               if (hasHand) {
@@ -161,8 +173,8 @@ export default function CameraFeed({ onHandDetected, onCameraReady, onGestureDet
                 };
 
                 setGestureData(updatedGesture);
-                if (onGestureDetected) {
-                  onGestureDetected(updatedGesture);
+                if (onGestureDetectedRef.current) {
+                  onGestureDetectedRef.current(updatedGesture);
                 }
 
                 // 2. Draw landmarks and connectors
@@ -204,8 +216,8 @@ export default function CameraFeed({ onHandDetected, onCameraReady, onGestureDet
                   fingerStates: null,
                 };
                 setGestureData(resetGesture);
-                if (onGestureDetected) {
-                  onGestureDetected(resetGesture);
+                if (onGestureDetectedRef.current) {
+                  onGestureDetectedRef.current(resetGesture);
                 }
               }
             } catch (inferErr) {
@@ -231,16 +243,41 @@ export default function CameraFeed({ onHandDetected, onCameraReady, onGestureDet
     };
 
     animFrameIdRef.current = requestAnimationFrame(render);
-  }, [onHandDetected, onGestureDetected]);
+  }, []);
 
   // Start webcam and hand tracking
   const startCamera = useCallback(async () => {
-    stopCamera();
+    // If an active live stream already exists, preserve it
+    const hasLiveStream = streamRef.current &&
+      streamRef.current.getTracks().some((t) => t.readyState === 'live');
+    if (hasLiveStream && videoRef.current && videoRef.current.srcObject) {
+      if (!animFrameIdRef.current) {
+        runDetectionLoop();
+      }
+      return;
+    }
+
+    const callId = ++activeCallIdRef.current;
+
+    // Stop previous tracks and reset state
+    if (animFrameIdRef.current) {
+      cancelAnimationFrame(animFrameIdRef.current);
+      animFrameIdRef.current = null;
+    }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+
     setErrorMessage('');
     setErrorType(null);
     setCameraState('requesting');
 
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      if (callId !== activeCallIdRef.current) return;
       setCameraState('error');
       setErrorType('notFound');
       setErrorMessage('Browser does not support camera access (getUserMedia is unavailable).');
@@ -268,26 +305,61 @@ export default function CameraFeed({ onHandDetected, onCameraReady, onGestureDet
         }
       }
 
+      if (callId !== activeCallIdRef.current) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+
       streamRef.current = stream;
 
-      if (!videoRef.current) return;
+      if (!videoRef.current) {
+        stream.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
+        return;
+      }
+
       videoRef.current.srcObject = stream;
 
       await new Promise((resolve) => {
-        videoRef.current.onloadedmetadata = () => {
-          videoRef.current.play().then(resolve);
+        const video = videoRef.current;
+        if (!video) return resolve();
+
+        const handleReady = () => {
+          video.removeEventListener('loadeddata', handleReady);
+          video.removeEventListener('loadedmetadata', handleReady);
+          video.play().then(resolve).catch(resolve);
         };
+
+        if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+          video.play().then(resolve).catch(resolve);
+        } else {
+          video.addEventListener('loadeddata', handleReady);
+          video.addEventListener('loadedmetadata', handleReady);
+          setTimeout(handleReady, 500);
+        }
       });
+
+      if (callId !== activeCallIdRef.current) {
+        stopCamera();
+        return;
+      }
 
       // 2. Load HandLandmarker
       await initLandmarker();
 
+      if (callId !== activeCallIdRef.current) {
+        stopCamera();
+        return;
+      }
+
       setCameraState('ready');
-      if (onCameraReady) onCameraReady(true);
+      if (onCameraReadyRef.current) onCameraReadyRef.current(true);
 
       // Start detection render loop
       runDetectionLoop();
     } catch (err) {
+      if (callId !== activeCallIdRef.current) return;
+
       console.error('Camera or model initialization error:', err);
       setCameraState('error');
 
@@ -308,13 +380,21 @@ export default function CameraFeed({ onHandDetected, onCameraReady, onGestureDet
         setErrorMessage(err.message || 'An unexpected error occurred while accessing the camera.');
       }
 
-      if (onCameraReady) onCameraReady(false);
+      if (onCameraReadyRef.current) onCameraReadyRef.current(false);
     }
-  }, [stopCamera, onCameraReady, runDetectionLoop]);
+  }, [stopCamera, runDetectionLoop]);
 
   useEffect(() => {
-    startCamera();
+    let isMounted = true;
+
+    Promise.resolve().then(() => {
+      if (isMounted) {
+        startCamera();
+      }
+    });
+
     return () => {
+      isMounted = false;
       stopCamera();
     };
   }, [startCamera, stopCamera]);

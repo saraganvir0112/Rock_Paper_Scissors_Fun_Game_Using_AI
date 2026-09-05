@@ -94,6 +94,15 @@ export default function App() {
     setScoreAnimation(null);
   };
 
+  // Stable callbacks for CameraFeed
+  const handleHandDetected = useCallback((detected) => {
+    setIsHandDetected(detected);
+  }, []);
+
+  const handleCameraReady = useCallback((ready) => {
+    setIsCameraReady(ready);
+  }, []);
+
   const activeMeta = GESTURE_METADATA[gestureInfo.gesture] || GESTURE_METADATA[GESTURES.UNKNOWN];
 
   return (
@@ -221,8 +230,8 @@ export default function App() {
         {/* Camera Feed */}
         <section className="camera-section">
           <CameraFeed
-            onHandDetected={(detected) => setIsHandDetected(detected)}
-            onCameraReady={(ready) => setIsCameraReady(ready)}
+            onHandDetected={handleHandDetected}
+            onCameraReady={handleCameraReady}
             onGestureDetected={handleGestureDetected}
           />
         </section>
