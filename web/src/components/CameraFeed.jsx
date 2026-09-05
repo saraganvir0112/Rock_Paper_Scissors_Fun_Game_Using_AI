@@ -1,7 +1,13 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { FilesetResolver, HandLandmarker, DrawingUtils } from '@mediapipe/tasks-vision';
+import {
+  classifyHandGesture,
+  GestureStabilizer,
+  GESTURES,
+  GESTURE_METADATA,
+} from '../utils/gestureClassifier';
 
-export default function CameraFeed({ onHandDetected, onCameraReady }) {
+export default function CameraFeed({ onHandDetected, onCameraReady, onGestureDetected }) {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const landmarkerRef = useRef(null);
@@ -9,6 +15,7 @@ export default function CameraFeed({ onHandDetected, onCameraReady }) {
   const streamRef = useRef(null);
   const lastVideoTimeRef = useRef(-1);
   const lastInferenceTimeRef = useRef(-1);
+  const stabilizerRef = useRef(new GestureStabilizer(6, 4));
 
   const [cameraState, setCameraState] = useState('idle'); // 'idle' | 'requesting' | 'loading-model' | 'ready' | 'error'
   const [errorMessage, setErrorMessage] = useState('');
@@ -16,6 +23,11 @@ export default function CameraFeed({ onHandDetected, onCameraReady }) {
   const [isHandDetected, setIsHandDetected] = useState(false);
   const [isMirrored, setIsMirrored] = useState(true);
   const [cameraInfo, setCameraInfo] = useState({ width: 0, height: 0, fps: 0 });
+  const [gestureData, setGestureData] = useState({
+    gesture: GESTURES.UNKNOWN,
+    confidence: 0,
+    fingerStates: null,
+  });
 
   // Cleanup stream and animation loop
   const stopCamera = useCallback(() => {
@@ -136,6 +148,24 @@ export default function CameraFeed({ onHandDetected, onCameraReady }) {
               }
 
               if (hasHand) {
+                const primaryHandLandmarks = results.landmarks[0];
+
+                // 1. Gesture Classification + Temporal Stabilization
+                const rawClassification = classifyHandGesture(primaryHandLandmarks);
+                const stabilized = stabilizerRef.current.add(rawClassification.gesture);
+
+                const updatedGesture = {
+                  gesture: stabilized.stableGesture,
+                  confidence: stabilized.confidence,
+                  fingerStates: rawClassification.fingerStates,
+                };
+
+                setGestureData(updatedGesture);
+                if (onGestureDetected) {
+                  onGestureDetected(updatedGesture);
+                }
+
+                // 2. Draw landmarks and connectors
                 for (const landmarks of results.landmarks) {
                   // Draw skeletal connections
                   drawingUtils.drawConnectors(landmarks, HandLandmarker.HAND_CONNECTIONS, {
@@ -149,6 +179,33 @@ export default function CameraFeed({ onHandDetected, onCameraReady }) {
                     lineWidth: 1.5,
                     radius: 4,
                   });
+                }
+
+                // 3. Render floating gesture label near wrist
+                if (stabilized.stableGesture !== GESTURES.UNKNOWN) {
+                  const meta = GESTURE_METADATA[stabilized.stableGesture];
+                  const wrist = primaryHandLandmarks[0];
+                  const x = wrist.x * canvas.width;
+                  const y = Math.max(35, wrist.y * canvas.height - 20);
+
+                  ctx.save();
+                  ctx.font = 'bold 22px Outfit, sans-serif';
+                  ctx.fillStyle = meta.color;
+                  ctx.shadowColor = meta.color;
+                  ctx.shadowBlur = 8;
+                  ctx.fillText(`${meta.emoji} ${meta.label}`, x - 35, y);
+                  ctx.restore();
+                }
+              } else {
+                stabilizerRef.current.reset();
+                const resetGesture = {
+                  gesture: GESTURES.UNKNOWN,
+                  confidence: 0,
+                  fingerStates: null,
+                };
+                setGestureData(resetGesture);
+                if (onGestureDetected) {
+                  onGestureDetected(resetGesture);
                 }
               }
             } catch (inferErr) {
@@ -174,7 +231,7 @@ export default function CameraFeed({ onHandDetected, onCameraReady }) {
     };
 
     animFrameIdRef.current = requestAnimationFrame(render);
-  }, [onHandDetected]);
+  }, [onHandDetected, onGestureDetected]);
 
   // Start webcam and hand tracking
   const startCamera = useCallback(async () => {
@@ -262,6 +319,8 @@ export default function CameraFeed({ onHandDetected, onCameraReady }) {
     };
   }, [startCamera, stopCamera]);
 
+  const activeMeta = GESTURE_METADATA[gestureData.gesture] || GESTURE_METADATA[GESTURES.UNKNOWN];
+
   return (
     <div className="camera-feed-container">
       {/* Top Status Bar */}
@@ -284,6 +343,20 @@ export default function CameraFeed({ onHandDetected, onCameraReady }) {
             <div className={`badge hand-badge ${isHandDetected ? 'hand-active' : 'hand-waiting'}`}>
               <span className="hand-icon">{isHandDetected ? '🖐️' : '⏳'}</span>
               <span>{isHandDetected ? 'Hand Detected' : 'Show Hand to Camera'}</span>
+            </div>
+          )}
+
+          {/* Active Gesture Badge */}
+          {cameraState === 'ready' && isHandDetected && (
+            <div
+              className={`badge gesture-badge gesture-${gestureData.gesture.toLowerCase()}`}
+              style={{ borderColor: activeMeta.color }}
+            >
+              <span>{activeMeta.emoji}</span>
+              <span style={{ color: activeMeta.color, fontWeight: 700 }}>{activeMeta.label}</span>
+              {gestureData.confidence > 0 && (
+                <span className="confidence-tag">{gestureData.confidence}%</span>
+              )}
             </div>
           )}
         </div>
